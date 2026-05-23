@@ -146,7 +146,7 @@ func (s *Scheduler) AddCronTask(expression string, t Task) error {
 		return err
 	}
 
-	task.nextRun, err = gron.NextTime(expression)
+	task.nextRun, err = gron.NextAfter(time.Now().In(s.location), expression)
 	if err != nil {
 		return err
 	}

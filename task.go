@@ -207,17 +207,18 @@ func (t *taskWrap) NextRun() time.Time {
 }
 
 func (t *taskWrap) CompareNextRun(now time.Time) (bool, error) {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	var err error
 
 	for now.After(t.nextRun) {
 		switch t.class {
 		case ClassCron:
-			next, err := gron.NextTime(t.cron)
+			t.nextRun, err = gron.NextAfter(t.nextRun, t.cron)
 			if err != nil {
 				return false, err
 			}
-			t.nextRun = next
 		case ClassDuration:
 			t.nextRun = t.nextRun.Add(t.duration)
 		}
