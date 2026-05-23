@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/alnovi/gron"
 )
 
 var (
@@ -15,6 +17,7 @@ var (
 	ErrTaskIsRunning         = errors.New("task is running")
 	ErrTaskNameIsEmpty       = errors.New("task name is empty")
 	ErrTaskIncorrectDuration = errors.New("task is incorrect duration")
+	ErrTaskCronExpression    = errors.New("task cron expression is invalid")
 )
 
 type Locker interface {
@@ -103,7 +106,7 @@ func (s *Scheduler) AddDurationTask(d time.Duration, t Task) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	task, err := newTaskWrap(d, t)
+	task, err := newTaskWrapDuration(d, t)
 	if err != nil {
 		return err
 	}
@@ -121,13 +124,32 @@ func (s *Scheduler) AddDayAtTask(hour, minute int, t Task) error {
 
 	d, _ := time.ParseDuration("24h") // nolint:gosec
 
-	task, err := newTaskWrap(d, t)
+	task, err := newTaskWrapDuration(d, t)
 	if err != nil {
 		return err
 	}
 
 	now := time.Now()
 	task.nextRun = time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, s.location)
+
+	s.tasks[task.id] = task
+
+	return nil
+}
+
+func (s *Scheduler) AddCronTask(expression string, t Task) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, err := newTaskWrapCron(expression, t)
+	if err != nil {
+		return err
+	}
+
+	task.nextRun, err = gron.NextTime(expression)
+	if err != nil {
+		return err
+	}
 
 	s.tasks[task.id] = task
 
@@ -142,7 +164,7 @@ func (s *Scheduler) StartTask(taskId string) (*TaskInfo, error) {
 		return nil, ErrTaskNotFound
 	}
 	if task.IsStopped() {
-		task.SetStatus(Pending)
+		task.SetStatus(StatusPending)
 	}
 	return newTaskInfo(task), nil
 }
@@ -157,7 +179,7 @@ func (s *Scheduler) StopTask(taskId string) (*TaskInfo, error) {
 	if task.IsRunning() {
 		return nil, ErrTaskIsRunning
 	}
-	task.SetStatus(Stopped)
+	task.SetStatus(StatusStopped)
 	return newTaskInfo(task), nil
 }
 
@@ -181,7 +203,11 @@ func (s *Scheduler) runTasks(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, task := range s.tasks {
-		if task.CompareNextRun(now) {
+		ok, err := task.CompareNextRun(now)
+		if err != nil {
+			s.log.Error("fail to compare next run", slog.String("task", task.Name()), slog.String("error", err.Error()))
+		}
+		if ok {
 			s.runTask(task)
 		}
 	}
@@ -201,7 +227,7 @@ func (s *Scheduler) runTask(task *taskWrap) {
 		return
 	}
 
-	task.SetStatus(Running)
+	task.SetStatus(StatusRunning)
 
 	ctx, cancel := task.ContextTimeout(s.contextFn())
 
@@ -215,10 +241,10 @@ func (s *Scheduler) runTask(task *taskWrap) {
 
 		defer func() {
 			s.log.Debug("finished", slog.String("task", task.Name()))
-			if err := recover(); err != nil {
-				s.log.Error("PANIC", slog.String("error", err.(error).Error()), slog.String("task", task.Name()))
+			if errRec := recover(); errRec != nil {
+				s.log.Error("PANIC", slog.String("error", errRec.(error).Error()), slog.String("task", task.Name()))
 			}
-			task.SetStatus(Pending)
+			task.SetStatus(StatusPending)
 			cancel()
 			s.wg.Done()
 		}()

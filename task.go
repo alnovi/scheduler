@@ -2,17 +2,22 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/alnovi/gron"
 	"github.com/google/uuid"
 )
 
 const (
-	Pending = "pending"
-	Running = "running"
-	Stopped = "stopped"
+	StatusPending = "pending"
+	StatusRunning = "running"
+	StatusStopped = "stopped"
+
+	ClassDuration = "duration"
+	ClassCron     = "cron"
 )
 
 type Task interface {
@@ -50,8 +55,10 @@ func newTaskInfo(t *taskWrap) *TaskInfo {
 
 type taskWrap struct {
 	id        string
+	class     string
 	name      string
 	status    string
+	cron      string
 	duration  time.Duration
 	onceIn    time.Duration
 	nextRun   time.Time
@@ -61,7 +68,7 @@ type taskWrap struct {
 	mu        sync.RWMutex
 }
 
-func newTaskWrap(d time.Duration, t Task) (*taskWrap, error) {
+func newTaskWrapDuration(d time.Duration, t Task) (*taskWrap, error) {
 	if t == nil {
 		return nil, ErrTaskIsNil
 	}
@@ -76,9 +83,59 @@ func newTaskWrap(d time.Duration, t Task) (*taskWrap, error) {
 
 	task := &taskWrap{
 		id:       uuid.NewString(),
+		class:    ClassDuration,
 		name:     t.Name(),
-		status:   Pending,
+		status:   StatusPending,
+		cron:     "",
 		duration: d,
+		handleFn: t.Handle,
+		contextFn: func(ctx context.Context) context.Context {
+			return ctx
+		},
+		timeoutFn: func() time.Duration {
+			return 0
+		},
+	}
+
+	if opt, ok := t.(TaskContext); ok {
+		task.contextFn = opt.Context
+	}
+
+	if opt, ok := t.(TaskTimeout); ok {
+		if opt.Timeout() != 0 {
+			task.timeoutFn = opt.Timeout
+		}
+	}
+
+	if opt, ok := t.(TaskLocker); ok {
+		if opt.OnceIn() > 0 {
+			task.onceIn = opt.OnceIn()
+		}
+	}
+
+	return task, nil
+}
+
+func newTaskWrapCron(expression string, t Task) (*taskWrap, error) {
+	if t == nil {
+		return nil, ErrTaskIsNil
+	}
+
+	if strings.TrimSpace(t.Name()) == "" {
+		return nil, ErrTaskNameIsEmpty
+	}
+
+	if _, err := gron.NextTime(expression); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrTaskCronExpression, err)
+	}
+
+	task := &taskWrap{
+		id:       uuid.NewString(),
+		class:    ClassCron,
+		name:     t.Name(),
+		status:   StatusPending,
+		cron:     expression,
+		duration: 0,
 		handleFn: t.Handle,
 		contextFn: func(ctx context.Context) context.Context {
 			return ctx
@@ -122,19 +179,19 @@ func (t *taskWrap) OnceIn() time.Duration {
 func (t *taskWrap) IsPending() bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return t.status == Pending
+	return t.status == StatusPending
 }
 
 func (t *taskWrap) IsRunning() bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return t.status == Running
+	return t.status == StatusRunning
 }
 
 func (t *taskWrap) IsStopped() bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return t.status == Stopped
+	return t.status == StatusStopped
 }
 
 func (t *taskWrap) SetStatus(status string) {
@@ -149,21 +206,24 @@ func (t *taskWrap) NextRun() time.Time {
 	return t.nextRun
 }
 
-func (t *taskWrap) CompareNextRun(now time.Time) bool {
+func (t *taskWrap) CompareNextRun(now time.Time) (bool, error) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
 	for now.After(t.nextRun) {
-		t.nextRun = t.nextRun.Add(t.duration)
+		switch t.class {
+		case ClassCron:
+			next, err := gron.NextTime(t.cron)
+			if err != nil {
+				return false, err
+			}
+			t.nextRun = next
+		case ClassDuration:
+			t.nextRun = t.nextRun.Add(t.duration)
+		}
 	}
 
-	return now.Equal(t.nextRun)
-}
-
-func (t *taskWrap) SetNextRun(val time.Time) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.nextRun = val
+	return now.Equal(t.nextRun), nil
 }
 
 func (t *taskWrap) ContextTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
