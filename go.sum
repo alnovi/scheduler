@@ -1,5 +1,7 @@
 github.com/alnovi/gron v1.0.1 h1:UoOs9FQkyQLtse4DCy80tn5ef9yJl7y8UoadkR8EXSY=
 github.com/alnovi/gron v1.0.1/go.mod h1:nQ54fPk9TZhAu0KNe5CLOkS15n5QaQACclnBgeaY0ss=
+github.com/alnovi/gron v1.0.2 h1:RSt0VbCgmcvDMKw0f4aOq0z77Oor5g1VDdrrE9cANPc=
+github.com/alnovi/gron v1.0.2/go.mod h1:nQ54fPk9TZhAu0KNe5CLOkS15n5QaQACclnBgeaY0ss=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
 github.com/beorn7/perks v1.0.1/go.mod h1:G2ZrVWU2WbWT9wwq4/hrbKbnv/1ERSJQ0ibhJ6rlkpw=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=

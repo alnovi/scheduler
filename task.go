@@ -116,17 +116,15 @@ func newTaskWrapDuration(d time.Duration, t Task) (*taskWrap, error) {
 	return task, nil
 }
 
-func newTaskWrapCron(expression string, t Task) (*taskWrap, error) {
+func newTaskWrapCron(expression string, t Task, now time.Time) (*taskWrap, error) {
+	var err error
+
 	if t == nil {
 		return nil, ErrTaskIsNil
 	}
 
 	if strings.TrimSpace(t.Name()) == "" {
 		return nil, ErrTaskNameIsEmpty
-	}
-
-	if _, err := gron.NextTime(expression); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrTaskCronExpression, err)
 	}
 
 	task := &taskWrap{
@@ -143,6 +141,10 @@ func newTaskWrapCron(expression string, t Task) (*taskWrap, error) {
 		timeoutFn: func() time.Duration {
 			return 0
 		},
+	}
+
+	if task.nextRun, err = gron.NextAfter(now, expression); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrTaskCronExpression, err)
 	}
 
 	if opt, ok := t.(TaskContext); ok {

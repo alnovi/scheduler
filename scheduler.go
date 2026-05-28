@@ -7,8 +7,6 @@ import (
 	"log/slog"
 	"sync"
 	"time"
-
-	"github.com/alnovi/gron"
 )
 
 var (
@@ -141,12 +139,7 @@ func (s *Scheduler) AddCronTask(expression string, t Task) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	task, err := newTaskWrapCron(expression, t)
-	if err != nil {
-		return err
-	}
-
-	task.nextRun, err = gron.NextAfter(time.Now().In(s.location), expression)
+	task, err := newTaskWrapCron(expression, t, time.Now().In(s.location))
 	if err != nil {
 		return err
 	}
@@ -235,7 +228,7 @@ func (s *Scheduler) runTask(task *taskWrap) {
 
 	s.wg.Add(1)
 	go func() {
-		now := time.Now()
+		started := time.Now()
 
 		s.log.Debug("started", slog.String("task", task.Name()))
 
@@ -252,11 +245,11 @@ func (s *Scheduler) runTask(task *taskWrap) {
 		if err = task.handleFn(ctx); err == nil {
 			s.log.Info("Task exec ok", slog.String("task", task.Name()))
 			s.metrics.TaskProcessOkInc(task.Name())
-			s.metrics.TaskProcessDurationOk(task.Name(), now)
+			s.metrics.TaskProcessDurationOk(task.Name(), started)
 		} else {
 			s.log.Error("Task exec err", slog.String("task", task.Name()), slog.String("error", err.Error()))
 			s.metrics.TaskProcessErrInc(task.Name())
-			s.metrics.TaskProcessDurationErr(task.Name(), now)
+			s.metrics.TaskProcessDurationErr(task.Name(), started)
 		}
 	}()
 }
