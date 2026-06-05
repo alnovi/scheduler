@@ -100,51 +100,22 @@ func (s *Scheduler) Tasks() []*TaskInfo {
 	return tasks
 }
 
-func (s *Scheduler) AddDurationTask(d time.Duration, t Task) error {
+func (s *Scheduler) Add(b Builder) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	task, err := newTaskWrapDuration(d, t)
+	ok, task, err := b(time.Now().In(s.location))
+	if !ok {
+		return nil
+	}
+
 	if err != nil {
 		return err
 	}
 
-	task.nextRun = time.Now().In(s.location).Truncate(time.Minute).Add(task.duration)
-
-	s.tasks[task.id] = task
-
-	return nil
-}
-
-func (s *Scheduler) AddDayAtTask(hour, minute int, t Task) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	d, _ := time.ParseDuration("24h") // nolint:gosec
-
-	task, err := newTaskWrapDuration(d, t)
-	if err != nil {
-		return err
+	if task != nil {
+		s.tasks[task.id] = task
 	}
-
-	now := time.Now()
-	task.nextRun = time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, s.location)
-
-	s.tasks[task.id] = task
-
-	return nil
-}
-
-func (s *Scheduler) AddCronTask(expression string, t Task) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	task, err := newTaskWrapCron(expression, t, time.Now().In(s.location))
-	if err != nil {
-		return err
-	}
-
-	s.tasks[task.id] = task
 
 	return nil
 }

@@ -24,11 +24,11 @@ go get github.com/alnovi/scheduler
 
 ## Добавление задачи
 
-| Пример                                       | Описание                                        |
-|----------------------------------------------|-------------------------------------------------|
-| `cron.AddDurationTask(time.Minute, &Task{})` | Запуск задачи через одинаковый интервал времени |
-| `cron.AddDayAtTask(10, 30, &Task{})`         | Запуск задачи раз в день в 10:30                |
-| `cron.AddCronTask("* * * * *", &Task{})`     | Запуск задачи используя cron выражение          |
+| Пример                                     | Описание                                        |
+|--------------------------------------------|-------------------------------------------------|
+| `scheduler.Duration(time.Minute, &Task{})` | Запуск задачи через одинаковый интервал времени |
+| `scheduler.DayAt(10, 30, &Task{})`         | Запуск задачи раз в день в 10:30                |
+| `scheduler.Cron("* * * * *", &Task{})`     | Запуск задачи используя cron выражение          |
 
 ## Типы задач
 
@@ -76,7 +76,7 @@ func (t *Task) Handle(_ context.Context) error {
 
 func main() {
 	cron := scheduler.New()
-	cron.AddCronTask(scheduler.EveryMinute, &Task{})
+	cron.Add(scheduler.Cron(scheduler.EveryMinute, &Task{}))
 	cron.Start()
 }
 ```
