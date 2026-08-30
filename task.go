@@ -54,21 +54,22 @@ func newTaskInfo(t *taskWrap) *TaskInfo {
 }
 
 type taskWrap struct {
-	id        string
-	class     string
-	name      string
-	status    string
-	cron      string
-	duration  time.Duration
-	onceIn    time.Duration
-	nextRun   time.Time
-	handleFn  func(context.Context) error
-	contextFn func(context.Context) context.Context
-	timeoutFn func() time.Duration
-	mu        sync.RWMutex
+	id         string
+	class      string
+	name       string
+	status     string
+	cron       string
+	duration   time.Duration
+	onceIn     time.Duration
+	delayStart time.Duration
+	nextRun    time.Time
+	handleFn   func(context.Context) error
+	contextFn  func(context.Context) context.Context
+	timeoutFn  func() time.Duration
+	mu         sync.RWMutex
 }
 
-func newTaskWrapDuration(d time.Duration, t Task) (*taskWrap, error) {
+func newTaskWrapDuration(d time.Duration, t Task, now time.Time, opts []TaskOption) (*taskWrap, error) {
 	if t == nil {
 		return nil, ErrTaskIsNil
 	}
@@ -82,13 +83,14 @@ func newTaskWrapDuration(d time.Duration, t Task) (*taskWrap, error) {
 	}
 
 	task := &taskWrap{
-		id:       uuid.NewString(),
-		class:    ClassDuration,
-		name:     t.Name(),
-		status:   StatusPending,
-		cron:     "",
-		duration: d,
-		handleFn: t.Handle,
+		id:         uuid.NewString(),
+		class:      ClassDuration,
+		name:       t.Name(),
+		status:     StatusPending,
+		cron:       "",
+		duration:   d,
+		delayStart: 0,
+		handleFn:   t.Handle,
 		contextFn: func(ctx context.Context) context.Context {
 			return ctx
 		},
@@ -96,6 +98,9 @@ func newTaskWrapDuration(d time.Duration, t Task) (*taskWrap, error) {
 			return 0
 		},
 	}
+	task.applyOptions(opts)
+
+	task.nextRun = now.Add(task.delayStart)
 
 	if opt, ok := t.(TaskContext); ok {
 		task.contextFn = opt.Context
@@ -116,7 +121,7 @@ func newTaskWrapDuration(d time.Duration, t Task) (*taskWrap, error) {
 	return task, nil
 }
 
-func newTaskWrapCron(expression string, t Task, now time.Time) (*taskWrap, error) {
+func newTaskWrapCron(expression string, t Task, now time.Time, opts []TaskOption) (*taskWrap, error) {
 	var err error
 
 	if t == nil {
@@ -128,13 +133,14 @@ func newTaskWrapCron(expression string, t Task, now time.Time) (*taskWrap, error
 	}
 
 	task := &taskWrap{
-		id:       uuid.NewString(),
-		class:    ClassCron,
-		name:     t.Name(),
-		status:   StatusPending,
-		cron:     expression,
-		duration: 0,
-		handleFn: t.Handle,
+		id:         uuid.NewString(),
+		class:      ClassCron,
+		name:       t.Name(),
+		status:     StatusPending,
+		cron:       expression,
+		duration:   0,
+		delayStart: 0,
+		handleFn:   t.Handle,
 		contextFn: func(ctx context.Context) context.Context {
 			return ctx
 		},
@@ -142,6 +148,9 @@ func newTaskWrapCron(expression string, t Task, now time.Time) (*taskWrap, error
 			return 0
 		},
 	}
+	task.applyOptions(opts)
+
+	now = now.Add(task.delayStart)
 
 	if task.nextRun, err = gron.NextAfter(now, expression); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrTaskCronExpression, err)
@@ -238,4 +247,12 @@ func (t *taskWrap) ContextTimeout(ctx context.Context) (context.Context, context
 		ctx, cancel = context.WithTimeout(ctx, t.duration)
 	}
 	return ctx, cancel
+}
+
+func (t *taskWrap) applyOptions(opts []TaskOption) {
+	for _, opt := range opts {
+		if opt != nil {
+			opt(t)
+		}
+	}
 }

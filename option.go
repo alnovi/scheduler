@@ -43,3 +43,13 @@ func WithContextFn(fn func() context.Context) Option {
 		}
 	}
 }
+
+type TaskOption func(task *taskWrap)
+
+func WithDelayStart(delay time.Duration) TaskOption {
+	return func(task *taskWrap) {
+		if delay > 0 {
+			task.delayStart = delay
+		}
+	}
+}
