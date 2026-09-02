@@ -5,238 +5,256 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 )
 
+const (
+	StatusPending Status = "pending"
+	StatusRunning Status = "running"
+	StatusStopped Status = "stopped"
+)
+
 var (
 	ErrTaskIsNil             = errors.New("task is nil")
-	ErrTaskNotFound          = errors.New("task not found")
-	ErrTaskIsRunning         = errors.New("task is running")
 	ErrTaskNameIsEmpty       = errors.New("task name is empty")
+	ErrTaskHandlerIsEmpty    = errors.New("task handler is empty")
 	ErrTaskIncorrectDuration = errors.New("task is incorrect duration")
 	ErrTaskCronExpression    = errors.New("task cron expression is invalid")
 )
+
+type Status string
+
+type Task interface {
+	Init(now time.Time) error
+	GetStatus() Status
+	Timeout() time.Duration
+	Lock() time.Duration
+	Compare(now time.Time) (bool, error)
+	Handle(ctx context.Context) error
+}
 
 type Locker interface {
 	LockResource(ctx context.Context, resource string, ttl time.Duration) (bool, string, error)
 }
 
 type Scheduler struct {
-	isRun     bool
-	log       *slog.Logger
-	locker    Locker
-	metrics   *Metrics
-	location  *time.Location
-	ticker    *time.Ticker
-	tasks     map[string]*taskWrap
-	stopCh    chan struct{}
-	wg        sync.WaitGroup
-	mu        sync.RWMutex
-	contextFn func() context.Context
+	ctx      context.Context
+	cancel   context.CancelFunc
+	logger   *slog.Logger
+	location *time.Location
+	ticker   *time.Ticker
+	locker   Locker
+	metrics  *Metrics
+	tasks    map[string]Task
+	wg       sync.WaitGroup
+	mu       sync.RWMutex
 }
 
-func New(options ...Option) *Scheduler {
-	scheduler := &Scheduler{
-		isRun:     false,
-		log:       slog.New(slog.DiscardHandler),
-		metrics:   NewMetrics(false),
-		ticker:    time.NewTicker(time.Minute),
-		location:  time.UTC,
-		tasks:     make(map[string]*taskWrap),
-		stopCh:    make(chan struct{}),
-		wg:        sync.WaitGroup{},
-		contextFn: context.Background,
+func New(opts ...Option) *Scheduler {
+	s := &Scheduler{
+		ctx:      context.Background(),
+		cancel:   nil,
+		logger:   slog.New(slog.DiscardHandler),
+		location: time.UTC,
+		ticker:   nil,
+		locker:   nil,
+		metrics:  NewMetrics(false),
+		tasks:    make(map[string]Task),
+		wg:       sync.WaitGroup{},
 	}
 
-	for _, option := range options {
-		option(scheduler)
+	for _, opt := range opts {
+		if opt != nil {
+			opt(s)
+		}
 	}
 
-	return scheduler
+	return s
 }
 
-func (s *Scheduler) Start() {
+func (s *Scheduler) AddTask(name string, task Task) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.isRun {
-		return
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ErrTaskNameIsEmpty
 	}
 
-	s.isRun = true
+	if task == nil {
+		return ErrTaskIsNil
+	}
 
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
+	s.tasks[name] = task
+
+	return nil
+}
+
+func (s *Scheduler) Start() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.isRun() {
+		return nil
+	}
+
+	s.ctx, s.cancel = context.WithCancel(context.Background())
+	s.ticker = time.NewTicker(time.Minute)
+
+	for _, task := range s.tasks {
+		if err := task.Init(time.Now().In(s.location).Truncate(time.Minute)); err != nil {
+			return err
+		}
+	}
+
+	s.wg.Go(func() {
+		defer func() {
+			_ = s.shutdown(context.Background()) // nolint:gosec
+		}()
+
 		for {
 			select {
-			case <-s.stopCh:
+			case <-s.ctx.Done():
 				return
 			case now := <-s.ticker.C:
 				s.runTasks(now.In(s.location).Truncate(time.Minute))
 			}
 		}
-	}()
-}
+	})
 
-func (s *Scheduler) Shutdown(_ context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.ticker.Stop()
-	close(s.stopCh)
-	s.wg.Wait()
-	s.isRun = false
-	return nil
-}
-
-func (s *Scheduler) Tasks() []*TaskInfo {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	tasks := make([]*TaskInfo, 0, len(s.tasks))
-	for _, task := range s.tasks {
-		tasks = append(tasks, newTaskInfo(task))
-	}
-	return tasks
-}
-
-func (s *Scheduler) Add(b Builder) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	ok, task, err := b(time.Now().In(s.location))
-	if !ok {
-		return nil
-	}
-
-	if err != nil {
-		return err
-	}
-
-	if task != nil {
-		s.tasks[task.id] = task
-	}
+	s.logger.Debug("scheduler started")
 
 	return nil
 }
 
-func (s *Scheduler) StartTask(taskId string) (*TaskInfo, error) {
+func (s *Scheduler) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	task, ok := s.tasks[taskId]
-	if !ok {
-		return nil, ErrTaskNotFound
-	}
-	if task.IsStopped() {
-		task.SetStatus(StatusPending)
-	}
-	return newTaskInfo(task), nil
+	return s.shutdown(ctx)
 }
 
-func (s *Scheduler) StopTask(taskId string) (*TaskInfo, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	task, ok := s.tasks[taskId]
-	if !ok {
-		return nil, ErrTaskNotFound
-	}
-	if task.IsRunning() {
-		return nil, ErrTaskIsRunning
-	}
-	task.SetStatus(StatusStopped)
-	return newTaskInfo(task), nil
-}
-
-func (s *Scheduler) LockTask(task *taskWrap) (bool, error) {
-	if s.locker == nil {
-		return true, nil
-	}
-
-	if task.OnceIn() == 0 {
-		return true, nil
-	}
-
-	resource := fmt.Sprintf("scheduler:lock:%s", task.Name())
-
-	ok, _, err := s.locker.LockResource(context.Background(), resource, task.OnceIn())
-
-	return ok, err
+func (s *Scheduler) isRun() bool {
+	return s.cancel != nil
 }
 
 func (s *Scheduler) runTasks(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, task := range s.tasks {
-		ok, err := task.CompareNextRun(now)
-		if err != nil {
-			s.log.Error("fail to compare next run", slog.String("task", task.Name()), slog.String("error", err.Error()))
+
+	for name, task := range s.tasks {
+		if task.GetStatus() != StatusPending {
+			continue
 		}
-		if ok {
-			s.runTask(task)
+
+		isLocked, err := s.lockTask(name, task)
+		if err != nil {
+			s.logger.Error("failed to lock task", slog.String("task", name), slog.Any("err", err))
+			continue
+		}
+
+		if !isLocked {
+			continue
+		}
+
+		canRun, err := task.Compare(now)
+		if err != nil {
+			s.logger.Error("fail to compare next run", slog.String("task", name), slog.String("error", err.Error()))
+			continue
+		}
+
+		if canRun {
+			s.runTask(name, task)
 		}
 	}
 }
 
-func (s *Scheduler) runTask(task *taskWrap) {
-	if !task.IsPending() {
-		return
-	}
+func (s *Scheduler) runTask(name string, task Task) {
+	s.wg.Go(func() {
+		s.logger.Debug("task started", slog.String("task", name))
 
-	isLocked, err := s.LockTask(task)
-	if err != nil {
-		s.log.Error("fail lock task", slog.String("task", task.Name()), slog.String("error", err.Error()))
-	}
-
-	if !isLocked {
-		return
-	}
-
-	task.SetStatus(StatusRunning)
-
-	ctx, cancel := task.ContextTimeout(s.contextFn())
-
-	s.contextCancelWithStopCh(ctx, cancel)
-
-	s.wg.Add(1)
-	go func() {
-		started := time.Now()
-
-		s.log.Debug("started", slog.String("task", task.Name()))
-
+		ctx, cancel := s.taskContext(task)
 		defer func() {
-			s.log.Debug("finished", slog.String("task", task.Name()))
-			if errRec := recover(); errRec != nil {
-				s.log.Error("PANIC", slog.String("error", errRec.(error).Error()), slog.String("task", task.Name()))
+			if err := recover(); err != nil {
+				s.logger.Error("task panic", slog.String("task", name), slog.Any("error", err))
 			}
-			task.SetStatus(StatusPending)
 			cancel()
-			s.wg.Done()
 		}()
 
-		if err = task.handleFn(ctx); err == nil {
-			s.log.Info("Task exec ok", slog.String("task", task.Name()))
-			s.metrics.TaskProcessOkInc(task.Name())
-			s.metrics.TaskProcessDurationOk(task.Name(), started)
-		} else {
-			s.log.Error("Task exec err", slog.String("task", task.Name()), slog.String("error", err.Error()))
-			s.metrics.TaskProcessErrInc(task.Name())
-			s.metrics.TaskProcessDurationErr(task.Name(), started)
+		started := time.Now()
+
+		err := task.Handle(ctx)
+		if err != nil {
+			switch {
+			case errors.Is(err, context.DeadlineExceeded):
+				s.logger.Info("task deadline", slog.String("task", name))
+				s.metrics.TaskProcessOkInc(name)
+				s.metrics.TaskProcessDurationOk(name, started)
+			case errors.Is(err, context.Canceled):
+				s.logger.Warn("task cancelled", slog.String("task", name))
+				s.metrics.TaskProcessOkInc(name)
+				s.metrics.TaskProcessDurationOk(name, started)
+			default:
+				s.logger.Error("task failed", slog.String("task", name), slog.Any("error", err))
+				s.metrics.TaskProcessErrInc(name)
+				s.metrics.TaskProcessDurationErr(name, started)
+			}
+			return
 		}
-	}()
+
+		s.logger.Info("task success", slog.String("task", name))
+		s.metrics.TaskProcessOkInc(name)
+		s.metrics.TaskProcessDurationOk(name, started)
+	})
 }
 
-func (s *Scheduler) contextCancelWithStopCh(ctx context.Context, cancel context.CancelFunc) {
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-s.stopCh:
-				cancel()
-				return
-			}
-		}
+func (s *Scheduler) lockTask(name string, task Task) (bool, error) {
+	if s.locker == nil {
+		return true, nil
+	}
+
+	if task.Lock() <= 0 {
+		return true, nil
+	}
+
+	resource := fmt.Sprintf("scheduler:lock:%s", name)
+
+	ok, _, err := s.locker.LockResource(context.Background(), resource, task.Lock())
+
+	return ok, err
+}
+
+func (s *Scheduler) taskContext(task Task) (context.Context, context.CancelFunc) {
+	if task.Timeout() > 0 {
+		return context.WithTimeout(s.ctx, task.Timeout())
+	}
+	return context.WithCancel(s.ctx)
+}
+
+func (s *Scheduler) shutdown(ctx context.Context) error {
+	if !s.isRun() {
+		return nil
+	}
+
+	s.cancel()
+	s.cancel = nil
+	s.ticker.Stop()
+
+	defer func() {
+		s.logger.Debug("scheduler stopped")
 	}()
+
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return errors.New("shutdown timeout: some tasks did not finish")
+	}
 }

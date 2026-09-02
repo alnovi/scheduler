@@ -1,59 +1,42 @@
-# Scheduler
+# Scheduler (v2)
 
 [![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/alnovi/scheduler)](https://go.dev/dl/)
-[![GitHub License](https://img.shields.io/github/license/alnovi/sso)](https://github.com/alnovi/scheduler/blob/master/LICENSE.md)
+[![GitHub License](https://img.shields.io/github/license/alnovi/scheduler)](https://github.com/alnovi/scheduler/blob/master/LICENSE)
 
-**Scheduler** — планировщик задач. Он позволяет автоматически запускать команды, скрипты в заранее определённое время
-или с заданной периодичностью.
+**Scheduler** — планировщик задач. Позволяет автоматически запускать команды, скрипты с заданной периодичностью.
+Так же, доступна возможность реализации собственной логики запуска задач.
 
 ## Установка
 
 ```sh
-go get github.com/alnovi/scheduler
+go get github.com/alnovi/scheduler/v2
 ```
 
 ## Опции планировщика
 
-|       Опция       | Описание                                                                            |
-|:-----------------:|-------------------------------------------------------------------------------------|
-|  **WithLogger**   | Использовать свой логгер (slog.Logger)                                              |
-|  **WithLocker**   | Использовать свою реализацию для распределенной блокировки повторного запуска задач |
-|  **WithMetrics**  | Заполнять метрики                                                                   |
-| **WithLocation**  | Указать временную зону для планировщика                                             |
-| **WithContextFn** | Функция задающая context для задачи                                                 |
+| Option           | Default               | Description                                                   |
+|------------------|-----------------------|---------------------------------------------------------------|
+| **WithLogger**   | `slog.DiscardHandler` | Использовать преднастроенный логгер (slog.Logger)             |
+| **WithLocation** | `time.UTC`            | Указать временную зону для планировщика                       |
+| **WithLocker**   | `nil`                 | Использовать locker для блокировки паралельного запуска задач |
 
-## Опции задачи
+## Опции задач
 
-|       Опция        | Описание         |
-|:------------------:|------------------|
-| **WithDelayStart** | Отложеный запуск |
-
-## Добавление задачи
-
-| Пример                                     | Описание                                        |
-|--------------------------------------------|-------------------------------------------------|
-| `scheduler.Duration(time.Minute, &Task{})` | Запуск задачи через одинаковый интервал времени |
-| `scheduler.DayAt(10, 30, &Task{})`         | Запуск задачи раз в день в 10:30                |
-| `scheduler.Cron("* * * * *", &Task{})`     | Запуск задачи используя cron выражение          |
+| Option          | Default | Description                                                   |
+|-----------------|---------|---------------------------------------------------------------|
+| **WithEnabled** | `true`  | Активация/деактивация задачи                                  |
+| **WithTimeout** | `0`     | Время для выполнения задачи (0 - не ограничено)               |
+| **WithDelay**   | `0`     | Отложеный запуск задачи (только первый запуск)                |
+| **WithLock**    | `0`     | Блокировать задачу для паралельного запуска на указаное время |
 
 ## Типы задач
 
-Все задачи должны имплементировать контракт `Task`:
+| Type task        | Example                                 | Description                              |
+|------------------|-----------------------------------------|------------------------------------------|
+| **CronTask**     | `MustCronTask("* * * * *", handle)`     | Запуск испульзуя cron выражение          |
+| **DurationTask** | `MustDurationTask(time.Minute, handle)` | Запуск через одинаковый интервал времени |
 
-```golang
-type Task interface {
-Name() string
-Handle(ctx context.Context) error
-}
-```
-
-Для дополнительных возможностей требуется реализовать следующие контракты:
-
-- **TaskContext** - позволяет изменить context перед выполнением задачи
-- **TaskTimeout** - ограничение времени работы задачи
-- **TaskLocker** - распределенная блокировка, не запускать задачу параллельно на нескольких серверах
-
-## Использование
+## Пример использования
 
 ```go
 package main
@@ -62,27 +45,79 @@ import (
 	"context"
 	"fmt"
 	"time"
-	"github.com/alnovi/scheduler"
+	"github.com/alnovi/scheduler/v2"
+	"github.com/alnovi/scheduler/v2/tasks"
 )
 
-type Task struct{}
+func main() {
+	sch := scheduler.New()
+	
+	handleFn := func(_ context.Context) error {
+		fmt.Println("exec ok")
+		return nil
+    }
+	
+	task, _ := tasks.NewDurationTask(
+		time.Minute,
+		handleFn,
+		tasks.WithTimeout(time.Second),
+	)
+	
+	sch.AddTask("test", task)
+	sch.Start()
+}
+```
 
-func (t *Task) Name() string {
-	return "task"
+## Реализация собственного типа задачи
+
+Для реализации собственного типа задачи, требуется имплементировать интерфейс `scheduler.Task`. Базовая функциональность 
+добавляется с помощью структуры `tasks.Base`.
+
+### Пример собственного типа
+
+```go
+package example
+
+import (
+	"time"
+	"github.com/alnovi/scheduler/v2/tasks"
+)
+
+type HourTask struct {
+	*tasks.Base
+	next time.Time
 }
 
-func (t *Task) Timeout() time.Duration {
-	return time.Minute
+func NewHourTask(handler tasks.HandlerFn, opts ...tasks.Option) (*HourTask, error) {
+	base, err := tasks.NewBase(handler, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &HourTask{Base: base}, nil
 }
 
-func (t *Task) Handle(_ context.Context) error {
-	fmt.Println(time.Now())
+func (t *HourTask) Init(now time.Time) error {
+	t.next = now.Add(t.Delay()).Round(time.Hour)
 	return nil
 }
 
-func main() {
-	cron := scheduler.New()
-	cron.Add(scheduler.Cron(scheduler.EveryMinute, &Task{}))
-	cron.Start()
+func (t *HourTask) Compare(now time.Time) (bool, error) {
+	for now.After(t.next) {
+		t.next = now.Add(time.Hour).Round(time.Hour)
+	}
+	return t.next.Minute() == 0, nil
+}
+```
+
+# Блокировка параллельного запуска (locker)
+
+Библиотека содержит простой locker для работы в единственном экземпляре.
+Для распределенной блокировки требуется собственная реализация блокировщика, на пример,
+с использованием redis или других систем.  
+Для реализации locker, достаточно имплементировать интерфейс `scheduler.Locker`.
+
+```go
+type Locker interface {
+	LockResource(ctx context.Context, resource string, ttl time.Duration) (bool, string, error)
 }
 ```

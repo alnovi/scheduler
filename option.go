@@ -1,7 +1,6 @@
 package scheduler
 
 import (
-	"context"
 	"log/slog"
 	"time"
 )
@@ -11,20 +10,8 @@ type Option func(s *Scheduler)
 func WithLogger(logger *slog.Logger) Option {
 	return func(s *Scheduler) {
 		if logger != nil {
-			s.log = logger
+			s.logger = logger
 		}
-	}
-}
-
-func WithLocker(locker Locker) Option {
-	return func(s *Scheduler) {
-		s.locker = locker
-	}
-}
-
-func WithMetrics(opts ...MetricsOption) Option {
-	return func(s *Scheduler) {
-		s.metrics = NewMetrics(true, opts...)
 	}
 }
 
@@ -36,20 +23,16 @@ func WithLocation(location *time.Location) Option {
 	}
 }
 
-func WithContextFn(fn func() context.Context) Option {
+func WithLocker(locker Locker) Option {
 	return func(s *Scheduler) {
-		if fn != nil && fn() != nil {
-			s.contextFn = fn
+		if locker != nil {
+			s.locker = locker
 		}
 	}
 }
 
-type TaskOption func(task *taskWrap)
-
-func WithDelayStart(delay time.Duration) TaskOption {
-	return func(task *taskWrap) {
-		if delay > 0 {
-			task.delayStart = delay
-		}
+func WithMetrics(opts ...MetricsOption) Option {
+	return func(s *Scheduler) {
+		s.metrics = NewMetrics(true, opts...)
 	}
 }
