@@ -1,6 +1,6 @@
 module github.com/alnovi/scheduler/v2
 
-go 1.27.1
+go 1.27
 
 tool (
 	github.com/golangci/golangci-lint/v2/cmd/golangci-lint
