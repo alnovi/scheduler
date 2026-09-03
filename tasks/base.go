@@ -100,7 +100,7 @@ func WithTimeout(timeout time.Duration) Option {
 	return func(b *Base) {
 		if timeout > 0 {
 			if timeout.Minutes() > 0 {
-				timeout = timeout - (5 * time.Second)
+				timeout -= 5 * time.Second // nolint:mnd
 			}
 			b.timeout = timeout
 		}
