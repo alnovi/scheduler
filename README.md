@@ -3,6 +3,8 @@
 [![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/alnovi/scheduler)](https://go.dev/dl/)
 [![GitHub License](https://img.shields.io/github/license/alnovi/scheduler)](https://github.com/alnovi/scheduler/blob/master/LICENSE)
 [![GitHub Release](https://img.shields.io/github/v/release/alnovi/scheduler)](https://github.com/alnovi/scheduler/releases)
+![coverage](https://raw.githubusercontent.com/alnovi/scheduler/badges/.badges/master/coverage.svg)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/alnovi/scheduler/master.yml)
 
 **Scheduler** — планировщик задач. Позволяет автоматически запускать команды, скрипты с заданной периодичностью.
 Так же, доступна возможность реализации собственной логики запуска задач.

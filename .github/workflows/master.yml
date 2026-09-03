@@ -48,7 +48,7 @@ jobs:
         run: go mod tidy
 
       - name: Run tests
-        run: go test ./... -count=1 -coverpkg=./... -coverprofile=./cover.out
+        run: go test ./... -count=1 -coverpkg=./... -coverprofile=./cover.out -covermode=atomic
 
       - name: Check and push badge coverage
         uses: vladopajic/go-test-coverage@v2
