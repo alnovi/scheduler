@@ -124,5 +124,4 @@ func (t *HourTask) Compare(now time.Time) (bool, error) {
 type Locker interface {
 	LockResource(ctx context.Context, resource string, ttl time.Duration) (bool, string, error)
 }
-
 ```
