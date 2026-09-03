@@ -54,7 +54,7 @@ type Scheduler struct {
 
 func New(opts ...Option) *Scheduler {
 	s := &Scheduler{
-		ctx:      context.Background(),
+		ctx:      nil,
 		cancel:   nil,
 		logger:   slog.New(slog.DiscardHandler),
 		location: time.UTC,
@@ -92,7 +92,7 @@ func (s *Scheduler) AddTask(name string, task Task) error {
 	return nil
 }
 
-func (s *Scheduler) Start() error {
+func (s *Scheduler) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -100,7 +100,7 @@ func (s *Scheduler) Start() error {
 		return nil
 	}
 
-	s.ctx, s.cancel = context.WithCancel(context.Background())
+	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.ticker = time.NewTicker(time.Minute)
 
 	for _, task := range s.tasks {
@@ -111,7 +111,10 @@ func (s *Scheduler) Start() error {
 
 	s.wg.Go(func() {
 		defer func() {
-			_ = s.shutdown(context.Background()) // nolint:gosec
+			ctxShutdown, cancelShutdown := context.WithTimeout(ctx, time.Minute)
+			defer cancelShutdown()
+			err := s.shutdown(ctxShutdown)
+			s.logger.Error("scheduler shutting down", slog.Any("err", err))
 		}()
 
 		for {

@@ -19,6 +19,7 @@ go get github.com/alnovi/scheduler/v2
 | **WithLogger**   | `slog.DiscardHandler` | Использовать преднастроенный логгер (slog.Logger)             |
 | **WithLocation** | `time.UTC`            | Указать временную зону для планировщика                       |
 | **WithLocker**   | `nil`                 | Использовать locker для блокировки паралельного запуска задач |
+| **WithMetrics**  | `nil`                 | Собирать метрики по работе планировщика                       |
 
 ## Опции задач
 
@@ -51,26 +52,26 @@ import (
 
 func main() {
 	sch := scheduler.New()
-	
+
 	handleFn := func(_ context.Context) error {
 		fmt.Println("exec ok")
 		return nil
-    }
-	
+	}
+
 	task, _ := tasks.NewDurationTask(
 		time.Minute,
 		handleFn,
 		tasks.WithTimeout(time.Second),
 	)
-	
+
 	sch.AddTask("test", task)
-	sch.Start()
+	sch.Start(context.Background())
 }
 ```
 
 ## Реализация собственного типа задачи
 
-Для реализации собственного типа задачи, требуется имплементировать интерфейс `scheduler.Task`. Базовая функциональность 
+Для реализации собственного типа задачи, требуется имплементировать интерфейс `scheduler.Task`. Базовая функциональность
 добавляется с помощью структуры `tasks.Base`.
 
 ### Пример собственного типа
@@ -116,8 +117,9 @@ func (t *HourTask) Compare(now time.Time) (bool, error) {
 с использованием redis или других систем.  
 Для реализации locker, достаточно имплементировать интерфейс `scheduler.Locker`.
 
-```go
+```golang
 type Locker interface {
 	LockResource(ctx context.Context, resource string, ttl time.Duration) (bool, string, error)
 }
+
 ```

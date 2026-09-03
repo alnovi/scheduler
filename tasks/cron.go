@@ -42,11 +42,8 @@ func MustCronTask(expression string, handler HandlerFn, opts ...Option) *CronTas
 }
 
 func (t *CronTask) Init(now time.Time) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	var err error
-	if t.next, err = gron.NextAfter(now.Add(t.delay), t.expression); err != nil {
+	if t.next, err = gron.NextAfter(now.Add(t.Delay()), t.expression); err != nil {
 		return err
 	}
 
@@ -54,9 +51,6 @@ func (t *CronTask) Init(now time.Time) error {
 }
 
 func (t *CronTask) Compare(now time.Time) (bool, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	var err error
 
 	for now.After(t.next) {

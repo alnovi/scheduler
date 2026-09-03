@@ -10,6 +10,8 @@ const (
 	subsystem = "scheduler"
 	statusOk  = "ok"
 	statusErr = "error"
+	keyStatus = "status"
+	keyTask   = "task"
 )
 
 type Metrics struct {
@@ -40,7 +42,7 @@ func NewMetrics(enabled bool, opts ...MetricsOption) *Metrics {
 		Subsystem: subsystem,
 		Name:      "task_exec_count",
 		Help:      "Number of task processed",
-	}, []string{"status", "task"})
+	}, []string{keyStatus, keyTask}) // nolint:depguard
 	m.register.MustRegister(m.taskProcessCount)
 
 	m.taskProcessDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -49,7 +51,7 @@ func NewMetrics(enabled bool, opts ...MetricsOption) *Metrics {
 		Name:      "task_exec_duration_minutes",
 		Help:      "Duration of time to task executed",
 		Buckets:   []float64{1, 2, 3, 5, 10, 15, 30},
-	}, []string{"status", "task"})
+	}, []string{keyStatus, keyTask}) // nolint:depguard
 	m.register.MustRegister(m.taskProcessDuration)
 
 	return m
@@ -57,26 +59,26 @@ func NewMetrics(enabled bool, opts ...MetricsOption) *Metrics {
 
 func (m *Metrics) TaskProcessOkInc(task string) {
 	if m.enabled {
-		m.taskProcessCount.With(prometheus.Labels{"status": statusOk, "task": task}).Inc()
+		m.taskProcessCount.With(prometheus.Labels{keyStatus: statusOk, keyTask: task}).Inc()
 	}
 }
 
 func (m *Metrics) TaskProcessErrInc(task string) {
 	if m.enabled {
-		m.taskProcessCount.With(prometheus.Labels{"status": statusErr, "task": task}).Inc()
+		m.taskProcessCount.With(prometheus.Labels{keyStatus: statusErr, keyTask: task}).Inc()
 	}
 }
 
 func (m *Metrics) TaskProcessDurationOk(task string, start time.Time) {
 	if m.enabled {
-		labels := prometheus.Labels{"status": statusOk, "task": task}
+		labels := prometheus.Labels{keyStatus: statusOk, keyTask: task}
 		m.taskProcessDuration.With(labels).Observe(time.Since(start).Minutes())
 	}
 }
 
 func (m *Metrics) TaskProcessDurationErr(task string, start time.Time) {
 	if m.enabled {
-		labels := prometheus.Labels{"status": statusErr, "task": task}
+		labels := prometheus.Labels{keyStatus: statusErr, keyTask: task}
 		m.taskProcessDuration.With(labels).Observe(time.Since(start).Minutes())
 	}
 }

@@ -13,7 +13,6 @@ lint-fix:
 ## test: запуск тестов
 .PHONY: test
 test:
-	@go tool gotestsum --format=testname -- -count=1 -coverpkg=./... -coverprofile=./coverage.out ./...
+	@go tool gotestsum --format=testname -- -count=1 -coverpkg=github.com/alnovi/scheduler/v2,github.com/alnovi/scheduler/v2/tasks -coverprofile=./coverage.out ./...
 	@go tool cover -html=./coverage.out
 	@rm ./coverage.out
-

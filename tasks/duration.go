@@ -40,17 +40,11 @@ func MustDurationTask(duration time.Duration, handler HandlerFn, opts ...Option)
 }
 
 func (t *DurationTask) Init(now time.Time) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	t.next = now.Add(t.delay).Add(t.duration)
+	t.next = now.Add(t.Delay()).Add(t.duration)
 	return nil
 }
 
 func (t *DurationTask) Compare(now time.Time) (bool, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	for now.After(t.next) {
 		t.next = t.next.Add(t.duration)
 	}
