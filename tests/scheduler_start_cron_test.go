@@ -104,6 +104,18 @@ func TestSchedulerCronStart(t *testing.T) {
 			expCancelCalls: 1,
 			expFinishCalls: 0,
 		},
+		{
+			name:     "Success task is disabled",
+			sleep:    5 * time.Minute,
+			taskExpr: scheduler.CronEveryMinute,
+			taskOpts: []tasks.Option{
+				tasks.WithEnabled(false),
+			},
+			taskSleep:      time.Second,
+			expStartCalls:  0,
+			expCancelCalls: 0,
+			expFinishCalls: 0,
+		},
 	}
 
 	for _, tc := range testCases {

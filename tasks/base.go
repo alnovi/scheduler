@@ -72,10 +72,6 @@ func (b *Base) Lock() time.Duration {
 }
 
 func (b *Base) Handle(ctx context.Context) error {
-	if b.GetStatus() != scheduler.StatusPending {
-		return nil
-	}
-
 	b.SetStatus(scheduler.StatusRunning)
 	defer func() {
 		if b.GetStatus() == scheduler.StatusRunning {
