@@ -133,6 +133,8 @@ func TestSchedulerStartWithMockLocker(t *testing.T) {
 
 	synctest.Test(t, func(t *testing.T) {
 		require.NotPanics(t, func() {
+			var schedule *scheduler.Scheduler
+
 			locker := NewMockLocker()
 			handler := func(ctx context.Context) error {
 				return nil
@@ -142,7 +144,7 @@ func TestSchedulerStartWithMockLocker(t *testing.T) {
 			defer cancel()
 
 			for range podCount {
-				schedule := scheduler.New(scheduler.WithLocker(locker))
+				schedule = scheduler.New(scheduler.WithLocker(locker))
 
 				err := schedule.AddTask("test-task", tasks.MustCronTask(scheduler.CronEveryMinute, handler, tasks.WithLock(time.Hour)))
 				require.NoError(t, err, "failed to add task default")
@@ -154,8 +156,10 @@ func TestSchedulerStartWithMockLocker(t *testing.T) {
 			time.Sleep(time.Minute)
 			synctest.Wait()
 
-			cancel()
-			time.Sleep(time.Second)
+			err := schedule.Stop(t.Context())
+			require.NoError(t, err, "failed to stop scheduler")
+
+			time.Sleep(time.Minute)
 			synctest.Wait()
 		})
 	})

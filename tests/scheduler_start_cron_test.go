@@ -147,9 +147,10 @@ func TestSchedulerCronStart(t *testing.T) {
 				time.Sleep(tc.sleep)
 				synctest.Wait()
 
-				cancel()
-				_ = schedule.Stop(ctx)
-				time.Sleep(time.Second)
+				err = schedule.Stop(t.Context())
+				require.NoError(t, err, "failed to stop scheduler")
+
+				time.Sleep(time.Minute)
 				synctest.Wait()
 
 				assert.Equal(t, tc.expStartCalls, actStartCalls, "unexpected number of task start calls scheduled")
