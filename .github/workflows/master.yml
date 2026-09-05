@@ -54,12 +54,12 @@ jobs:
         uses: vladopajic/go-test-coverage@v2
         with:
           config: ./.testcoverage.yml
-#          git-token: ${{ github.ref_name == 'master' && secrets.GITHUB_TOKEN || '' }}
-#          git-branch: badges
-          cdn-secret:  ${{ github.ref_name == 'main' && secrets.CDN_SECRET || '' }}
-          cdn-key: ${{ secrets.CDN_KEY }}
-          cdn-region: msk-1
-          cdn-endpoint: https://rustfs.alnovi.ru
-          cdn-file-name: badges_${{ github.repository }}_${{ github.ref_name }}_coverage.svg
-          cdn-bucket-name: github
-          cdn-force-path-style: false
+          git-token: ${{ github.ref_name == 'master' && secrets.GITHUB_TOKEN || '' }}
+          git-branch: badges
+#          cdn-secret:  ${{ github.ref_name == 'main' && secrets.CDN_SECRET || '' }}
+#          cdn-key: ${{ secrets.CDN_KEY }}
+#          cdn-region: msk-1
+#          cdn-endpoint: https://rustfs.alnovi.ru
+#          cdn-file-name: badges_${{ github.repository }}_${{ github.ref_name }}_coverage.svg
+#          cdn-bucket-name: github
+#          cdn-force-path-style: false
