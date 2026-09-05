@@ -58,8 +58,8 @@ jobs:
 #          git-branch: badges
           cdn-secret:  ${{ github.ref_name == 'main' && secrets.CDN_SECRET || '' }}
           cdn-key: ${{ secrets.CDN_KEY }}
-          cdn-region: us-east-1
+          cdn-region: msk-1
           cdn-endpoint: https://rustfs.alnovi.ru
-          cdn-file-name: .badges/${{ github.repository }}/${{ github.ref_name }}/coverage.svg
+          cdn-file-name: badges_${{ github.repository }}_${{ github.ref_name }}_coverage.svg
           cdn-bucket-name: github
           cdn-force-path-style: false
