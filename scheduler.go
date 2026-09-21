@@ -151,16 +151,6 @@ func (s *Scheduler) runTasks(now time.Time) {
 			continue
 		}
 
-		isLocked, err := s.lockTask(name, task)
-		if err != nil {
-			s.logger.Error("failed to lock task", slog.String("task", name), slog.Any("err", err))
-			continue
-		}
-
-		if !isLocked {
-			continue
-		}
-
 		canRun, err := task.Compare(now)
 		if err != nil {
 			s.logger.Error("fail to compare next run", slog.String("task", name), slog.String("error", err.Error()))
@@ -168,6 +158,10 @@ func (s *Scheduler) runTasks(now time.Time) {
 		}
 
 		if canRun {
+			if !s.lockTask(name, task) {
+				continue
+			}
+
 			s.runTask(name, task)
 		}
 	}
@@ -212,20 +206,24 @@ func (s *Scheduler) runTask(name string, task Task) {
 	})
 }
 
-func (s *Scheduler) lockTask(name string, task Task) (bool, error) {
+func (s *Scheduler) lockTask(name string, task Task) bool {
 	if s.locker == nil {
-		return true, nil
+		return true
 	}
 
 	if task.Lock() <= 0 {
-		return true, nil
+		return true
 	}
 
 	resource := fmt.Sprintf("scheduler:lock:%s", name)
 
 	ok, _, err := s.locker.LockResource(context.Background(), resource, task.Lock())
+	if err != nil {
+		s.logger.Error("failed to lock task", slog.String("task", name), slog.Any("err", err))
+		return false
+	}
 
-	return ok, err
+	return ok
 }
 
 func (s *Scheduler) taskContext(task Task) (context.Context, context.CancelFunc) {
